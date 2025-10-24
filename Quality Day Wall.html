@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quality Idea Wall</title>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:20px; background:linear-gradient(120deg,#fceabb,#f8b195);}
+h1 { text-align:center; color:#ff6f61; margin-bottom:20px; text-shadow:1px 1px 3px rgba(255,111,97,0.3);}
+.container { display:flex; flex-direction:column; align-items:center; max-width:900px; margin:auto;}
+#remainingLikesTips { margin-bottom:10px; font-weight:bold; color:#ff6f61;}
+.form-group { margin-bottom:10px; width:100%;}
+input[type="text"], input[type="password"], textarea { width:100%; padding:8px; font-size:16px; border-radius:10px; border:1px solid #ccc; outline:none; transition:all 0.3s;}
+input[type="text"]:focus, input[type="password"]:focus, textarea:focus { border-color:#ff6f61; box-shadow:0 0 5px rgba(255,111,97,0.5);}
+button { padding:10px 20px; font-size:16px; border:none; border-radius:10px; background-color:#ffb347; color:white; cursor:pointer; margin-top:5px; transition:all 0.3s;}
+button:hover { transform:translateY(-2px); background-color:#ff6f61;}
+button:active { transform:scale(0.97);}
+.sticky-wall-container { width:100%; height:400px; overflow:hidden; background-color:rgba(255,255,255,0.8); border-radius:15px; box-shadow:0 5px 15px rgba(0,0,0,0.2); display:flex; gap:10px; padding:10px; position:relative;}
+.column { flex:1; display:flex; flex-direction:column; gap:10px; position:relative; overflow:hidden;}
+.sticky-column { display:flex; flex-direction:column; gap:10px; position:absolute; width:100%; transition:transform 1s ease-in-out;}
+.sticky-note { padding:10px; border-radius:15px; box-shadow:2px 4px 8px rgba(0,0,0,0.2); word-wrap:break-word; display:flex; flex-direction:column; justify-content:space-between; animation:popIn 0.5s ease; transition: all 0.3s;}
+.sticky-note:hover { transform:scale(1.03);}
+@keyframes popIn { 0%{transform:scale(0.8); opacity:0;} 60%{transform:scale(1.05); opacity:1;} 100%{transform:scale(1); opacity:1;}}
+.sticky-note p { margin:0; }
+.author { margin-top:5px; font-size:0.85em; color:#555; text-align:right; font-style:italic;}
+.sticky-footer { display:flex; justify-content:space-between; align-items:center; margin-top:5px;}
+.delete-btn { background:#ff6f61; color:white; border:none; border-radius:8px; font-size:12px; cursor:pointer; padding:2px 6px; transition: all 0.3s;}
+.delete-btn:hover { transform:scale(1.1); background:#ff3b2e;}
+.like-btn { background:#6fcf97; color:white; border:none; border-radius:8px; font-size:12px; cursor:pointer; padding:2px 6px; transition: all 0.3s;}
+.like-btn:hover { transform:scale(1.1); background:#3bb273;}
+#topRightPanel { position:fixed; top:20px; right:20px; display:flex; flex-direction:column; align-items:flex-end; gap:5px; font-size:14px; }
+#topRightPanel input, #topRightPanel button { font-size:12px; padding:5px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+
+<h1>How can we think differently about quality?</h1>
+
+<div id="topRightPanel">
+    <input type="password" id="adminPwd" placeholder="Admin Password">
+    <button onclick="checkAdmin()">Admin Login</button>
+    <button onclick="logoutAdmin()">Admin Logout</button>
+    <button onclick="exportToCSV()">Export All Ideas</button>
+    <div id="adminStatus"></div>
+</div>
+
+<div class="container">
+<div id="remainingLikesTips"></div>
+
+<div class="form-group">
+    <textarea id="idea" rows="3" placeholder="Write your ideas here..."></textarea>
+</div>
+<div class="form-group">
+    <input type="text" id="name" placeholder="Your Name">
+</div>
+<div class="form-group">
+    <input type="text" id="empId" placeholder="Employee ID">
+</div>
+<button onclick="addStickyNote()">Add Sticky Note</button>
+</div>
+
+<div class="sticky-wall-container" id="wallContainer">
+    <div class="column" id="col0"><div class="sticky-column" id="stickyCol0"></div></div>
+    <div class="column" id="col1"><div class="sticky-column" id="stickyCol1"></div></div>
+    <div class="column" id="col2"><div class="sticky-column" id="stickyCol2"></div></div>
+</div>
+
+<script>
+let stickyNotes=[];
+let scrollIndices=[0,0,0];
+let scrollIntervals=[];
+let isAdmin=false;
+const columnCount=3;
+const colors=['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff','#ffc6ff'];
+
+function updateRemainingLikesTips(){
+    const today=new Date().toLocaleDateString();
+    const liked=JSON.parse(localStorage.getItem('likedNotes')||'{}');
+    const todayLikes=liked[today]||[];
+    const remaining=Math.max(0,3-todayLikes.length);
+    document.getElementById('remainingLikesTips').textContent=`You can still like ${remaining} idea${remaining!==1?'s':''} today.`;
+}
+
+function updateAdminStatus(){
+    document.getElementById('adminStatus').textContent=isAdmin ? "Admin: ON" : "";
+}
+
+window.onload=function(){
+    const saved=localStorage.getItem('stickyNotes');
+    if(saved) stickyNotes=JSON.parse(saved);
+
+    if(localStorage.getItem('isAdmin')==='true'){ isAdmin=true; }
+    updateAdminStatus();
+    distributeNotes();
+    startAutoScrollAll();
+    updateRemainingLikesTips();
+    const container=document.getElementById('wallContainer');
+    container.addEventListener('mouseenter',pauseAllScroll);
+    container.addEventListener('mouseleave',startAutoScrollAll);
+}
+
+function checkAdmin(){
+    const pwd=document.getElementById('adminPwd').value.trim();
+    if(pwd==='admin123'){ 
+        isAdmin=true;
+        localStorage.setItem('isAdmin','true');
+        alert("Logged in as Admin.");
+    } else {
+        alert("Incorrect password.");
+        isAdmin=false;
+        localStorage.removeItem('isAdmin');
+    }
+    updateAdminStatus();
+    distributeNotes();
+    document.getElementById('adminPwd').value='';
+}
+
+function logoutAdmin(){
+    isAdmin=false;
+    localStorage.removeItem('isAdmin');
+    updateAdminStatus();
+    distributeNotes();
+}
+
+function addStickyNote(){
+    const idea=document.getElementById('idea').value.trim();
+    const name=document.getElementById('name').value.trim();
+    const empId=document.getElementById('empId').value.trim();
+    if(!idea||!name||!empId){alert("Please enter idea, name, and employee ID."); return;}
+    stickyNotes.push({ id:Date.now(), idea, name, empId, likes:0, time:new Date().toLocaleString() });
+    saveAndRender();
+    document.getElementById('idea').value='';
+}
+
+function saveAndRender(){ localStorage.setItem('stickyNotes',JSON.stringify(stickyNotes)); distributeNotes(); }
+
+function distributeNotes(){
+    stickyNotes.sort((a,b)=>b.likes-a.likes);
+    for(let i=0;i<columnCount;i++){ document.getElementById(`stickyCol${i}`).innerHTML=''; }
+    stickyNotes.forEach((note,idx)=>{ createStickyElement(note, idx%columnCount); });
+}
+
+function createStickyElement(noteObj,colIdx){
+    const col=document.getElementById(`stickyCol${colIdx}`);
+    const note=document.createElement('div'); note.className='sticky-note';
+    note.setAttribute('data-id',noteObj.id);
+    note.style.backgroundColor=colors[noteObj.name.charCodeAt(0)%colors.length];
+    const p=document.createElement('p'); p.textContent=noteObj.idea;
+    const author=document.createElement('div'); author.className='author'; author.textContent=`- ${noteObj.name} (${noteObj.empId})`;
+    const footer=document.createElement('div'); footer.className='sticky-footer';
+    const likeBtn=document.createElement('button'); likeBtn.className='like-btn'; likeBtn.textContent=`👍 ${noteObj.likes}`;
+    likeBtn.onclick=()=>likeNote(noteObj.id,likeBtn);
+
+    const currentName=document.getElementById('name').value.trim();
+    const currentEmp=document.getElementById('empId').value.trim();
+    if(isAdmin || (noteObj.name===currentName && noteObj.empId===currentEmp)){
+        const delBtn=document.createElement('button'); delBtn.className='delete-btn'; delBtn.textContent='X';
+        delBtn.onclick=()=>deleteNote(noteObj.id); footer.appendChild(delBtn);
+    }
+
+    footer.appendChild(likeBtn);
+    note.appendChild(p); note.appendChild(author); note.appendChild(footer);
+    col.appendChild(note);
+}
+
+function likeNote(id,btn){
+    const today=new Date().toLocaleDateString();
+    const liked=JSON.parse(localStorage.getItem('likedNotes')||'{}');
+    if(!liked[today]) liked[today]=[];
+    if(liked[today].includes(id)){alert("You already liked this idea!"); return;}
+    if(liked[today].length>=3){alert("You can only like 3 ideas per day!"); return;}
+    const note=stickyNotes.find(n=>n.id===id);
+    if(note){ note.likes++; btn.textContent=`👍 ${note.likes}`; liked[today].push(id); localStorage.setItem('likedNotes',JSON.stringify(liked)); saveAndRender(); updateRemainingLikesTips(); }
+}
+
+function deleteNote(id){ stickyNotes=stickyNotes.filter(n=>n.id!==id); saveAndRender(); updateRemainingLikesTips(); }
+
+function startAutoScrollAll(){ pauseAllScroll(); for(let i=0;i<columnCount;i++){ scrollIntervals[i]=setInterval(()=>autoScrollColumn(i),3000); }}
+function pauseAllScroll(){ scrollIntervals.forEach(intv=>clearInterval(intv));}
+function autoScrollColumn(colIdx){ const col=document.getElementById(`stickyCol${colIdx}`); const children=col.children; if(children.length<=1) return; scrollIndices[colIdx]++; if(scrollIndices[colIdx]>=children.length) scrollIndices[colIdx]=0; const h=children[0].offsetHeight+10; col.style.transform=`translateY(-${scrollIndices[colIdx]*h}px)`; col.style.transition='transform 1s ease-in-out';}
+
+function exportToCSV(){
+    if(stickyNotes.length===0){ alert("No ideas to export!"); return;}
+    const headers=['Employee ID','Name','Idea','Likes','Submitted Time'];
+    const rows=stickyNotes.map(n=>[n.empId,n.name,n.idea,n.likes,n.time]);
+    let csvContent="data:text/csv;charset=utf-8,"+headers.join(",")+"\n";
+    rows.forEach(r=>{ const rowStr=r.map(c=>`"${c.toString().replace(/"/g,'""')}"`).join(","); csvContent+=rowStr+"\n"; });
+    const encodedUri=encodeURI(csvContent);
+    const link=document.createElement("a");
+    link.setAttribute("href",encodedUri);
+    const now=new Date().toISOString().slice(0,19).replace(/:/g,"-");
+    link.setAttribute("download",`Quality_Ideas_${now}.csv`);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+}
+</script>
+</body>
+</html>
